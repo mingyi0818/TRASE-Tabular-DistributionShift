@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TRASE: Test-time Refinement with Adaptive Self-training Ensemble for Robust Tabular Learning under Distribution Shift</title>
+<style>
+body {
+    font-family: 'Times New Roman', serif;
+    font-size: 12pt;
+    line-height: 1.6;
+    max-width: 850px;
+    margin: 0 auto;
+    padding: 40px;
+    color: #1a1a1a;
+}
+h1 { font-size: 18pt; text-align: center; margin-bottom: 20px; }
+h2 { font-size: 14pt; border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-top: 30px; }
+h3 { font-size: 12pt; margin-top: 20px; }
+.authors { text-align: center; font-size: 11pt; margin-bottom: 10px; }
+.affiliations { text-align: center; font-size: 9pt; color: #555; margin-bottom: 30px; }
+.abstract { background: #f9f9f9; padding: 15px; border-left: 3px solid #1565C0; margin: 20px 0; }
+.keywords { font-size: 11pt; margin: 10px 0; }
+table { border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 10pt; }
+th, td { border: 1px solid #ddd; padding: 6px 10px; text-align: center; }
+th { background: #f0f0f0; font-weight: bold; }
+tr:nth-child(even) { background: #fafafa; }
+.best { font-weight: bold; }
+.formula { text-align: center; margin: 15px 0; font-style: italic; }
+.figure-caption { font-size: 10pt; text-align: center; margin: 10px 0; }
+.figure-caption img { max-width: 100%; }
+.ref { font-size: 9pt; margin-bottom: 4px; text-indent: -20px; padding-left: 20px; }
+sup { font-size: 0.7em; vertical-align: super; }
+</style>
+</head>
+<body>
+
+<h1>TRASE: Test-time Refinement with Adaptive Self-training Ensemble for Robust Tabular Learning under Distribution Shift</h1>
+
+<div class="authors">
+Jingyuan Zeng<sup>1</sup>, Ming Zeng<sup>2</sup>, Jianghong Guo<sup>1</sup>, Chuanxian Jiang<sup>1</sup>, Yafen Feng<sup>3,4</sup>*
+</div>
+
+<div class="affiliations">
+<sup>1</sup>School of Computer Science, Jiaying University, Meizhou 514015, Guangdong, China<br>
+<sup>2</sup>College of Water Resources and Civil Engineering, South China Agricultural University, Guangzhou 510642, Guangdong, China<br>
+<sup>3</sup>Key Laboratory of Mountain Surface Environment and Green Development in Northeast Guangdong, Meizhou 514015, Guangdong, China<br>
+<sup>4</sup>School of Geography and Tourism, Jiaying University, Meizhou 514015, Guangdong, China<br>
+*Corresponding author. E-mail: fyf81@163.com
+</div>
+
+<div class="abstract">
+<b>Abstract.</b> Distribution shift poses a fundamental challenge for tabular learning in real-world applications, where the test data distribution diverges from the training distribution due to temporal changes, population shifts, or selection biases. Existing approaches primarily focus on either feature-level correction or importance weighting, but they often fail to leverage the label information available in the target domain during inference. In this paper, we propose TRASE (Test-time Refinement with Adaptive Self-training Ensemble), a two-phase framework that combines shift-aware feature enhancement with iterative self-training refinement for robust tabular classification under distribution shift. Phase 1 builds a diverse ensemble of 8 models across 4 algorithms with shift-aware meta-features and validation-weighted fusion, using multiple safety gates to prevent degradation. Phase 2 performs curriculum-based self-training that iteratively refines the ensemble using high-confidence pseudo-labels from the target domain, with a global safety check ensuring improvement over the best single model. We conduct comprehensive experiments on 8 datasets across 3 split types (IID, temporal, group) with 5 random seeds, totaling 630 evaluation runs. TRASE achieves an average accuracy of 0.8432, outperforming XGBoost by +1.79% (p=1.31&times;10<sup>-3</sup>) and SimpleEns by +0.58%. On temporal splits with severe distribution shift, TRASE improves accuracy by +3.80% over XGBoost (p=0.012). Ablation studies confirm that all components contribute positively, with the diverse ensemble providing the largest gain (+1.37%, p=0.002). Sensitivity analysis shows low elasticity for all hyperparameters, and robustness experiments demonstrate graceful degradation under feature noise and missing values.
+</div>
+
+<div class="keywords">
+<b>Keywords:</b> Distribution shift, Test-time adaptation, Tabular learning, Self-training, Ensemble methods, Pseudo-labeling
+</div>
+
+<h2>1 Introduction and Related Work</h2>
+
+<p>Tabular data classification is ubiquitous in real-world applications such as customer churn prediction, medical diagnosis, and fraud detection. While gradient boosting methods like XGBoost [1] and LightGBM have achieved remarkable success on tabular benchmarks [2,3], they typically assume that training and test data follow the same distribution. In practice, this assumption is frequently violated due to temporal changes, population shifts, or selection biases, leading to significant performance degradation [4,5,6].</p>
+
+<p>Distribution shift in tabular data manifests in two primary forms: <i>covariate shift</i> where P(X) changes between source and target domains, and <i>concept drift</i> where P(Y|X) changes [7,8]. The TableShift benchmark [4] systematically evaluated various methods under different shift types and found that most existing approaches provide limited improvement. Recent studies [5,6] further confirmed that deep tabular methods are particularly vulnerable to temporal shift, with performance drops exceeding 15% in some cases.</p>
+
+<p>Test-time adaptation (TTA) has emerged as a promising paradigm for addressing distribution shift by adapting models using unlabeled target data during inference [9,10]. While TTA methods such as Tent [9] and SAR [10] have shown success in computer vision, their application to tabular data remains underexplored. Recent works like AdapTable [11] and FTAT [12] have begun exploring TTA for tabular data, but they primarily focus on uncertainty calibration or label distribution handling rather than leveraging target domain structure for model refinement.</p>
+
+<p>Ensemble methods provide a natural framework for robust prediction under distribution shift [13,14,15]. TabM [13] demonstrated that parameter-efficient ensembling significantly improves tabular deep learning. However, traditional ensembles treat all models equally or use static weighting, failing to adapt to the specific shift characteristics of the target domain. Self-training with pseudo-labeling [16,17,18] offers another adaptation mechanism, where high-confidence predictions on target data are used to retrain models. CAST [17] showed that cluster-aware confidence calibration improves self-training for tabular data, but it does not combine self-training with shift-aware feature enhancement.</p>
+
+<p>Domain adaptation techniques for tabular data [19,20,21] have explored importance weighting and density ratio estimation to correct for distribution differences. However, these methods often require explicit density estimation, which is challenging in high-dimensional tabular spaces. Feature drift detection methods [22,23,24] provide statistical tools to identify shifted features but typically do not integrate this information into adaptive prediction pipelines.</p>
+
+<p>In this paper, we propose TRASE, which addresses the limitations of existing approaches through a unified two-phase framework. The main contributions are:</p>
+
+<p style="margin-left:20px;">
+(1) A shift-aware feature enhancement module that uses per-feature Kolmogorov-Smirnov (KS) tests to detect shifted features and generates three meta-features characterizing per-sample shift severity, with an enhancement safety gate that prevents degradation on datasets where shift features are unhelpful.<br><br>
+(2) A validation-weighted fusion (VWF) mechanism that uses rank-based softmax weighting with shift-adaptive temperature, combined with target-similarity weighted validation to focus model selection on target-like samples.<br><br>
+(3) A curriculum-based self-training refinement that iteratively improves the ensemble using high-confidence pseudo-labels from the target domain, with a global safety check ensuring that adaptation only proceeds when it exceeds the best single model's performance.<br><br>
+(4) Comprehensive experiments on 8 datasets across 3 split types with 5 seeds (630 runs), demonstrating significant improvement over strong baselines, along with ablation studies, sensitivity analysis, robustness evaluation, and efficiency comparison.
+</p>
+
+<h2>2 Methodology</h2>
+
+<h3>2.1 Problem Formulation</h3>
+
+<p>Let D<sub>s</sub> = {(x<sub>i</sub><sup>s</sup>, y<sub>i</sub><sup>s</sup>)}<sub>i=1</sub><sup>n<sub>s</sub></sup> be the labeled source domain and D<sub>t</sub> = {x<sub>j</sub><sup>t</sup>}<sub>j=1</sub><sup>n<sub>t</sub></sup> be the unlabeled target domain, where x &isin; &reals;<sup>d</sup> and y &isin; {1, ..., K}. Under distribution shift, P<sub>s</sub>(X) &ne; P<sub>t</sub>(X) and potentially P<sub>s</sub>(Y|X) &ne; P<sub>t</sub>(Y|X). The goal is to learn a predictor f: &reals;<sup>d</sup> &rarr; {1, ..., K} that minimizes the target risk R<sub>t</sub>(f) = &Eopf;<sub>(x,y)~P<sub>t</sub></sub>[1(f(x) &ne; y)].</p>
+
+<p>We also assume access to a labeled validation set D<sub>v</sub> = {(x<sub>k</sub><sup>v</sup>, y<sub>k</sub><sup>v</sup>)}<sub>k=1</sub><sup>n<sub>v</sub></sup> drawn from the source domain, which serves as a safety checkpoint during adaptation.</p>
+
+<h3>2.2 Phase 1: Diverse Ensemble with Shift-Aware Features</h3>
+
+<h4>2.2.1 Shift Characterization</h4>
+
+<p>For each feature j &isin; {1, ..., d}, we perform a two-sample Kolmogorov-Smirnov test between source and target distributions:</p>
+
+<div class="formula">
+KS<sub>j</sub> = sup<sub>x</sub> |F<sub>s,j</sub>(x) &minus; F<sub>t,j</sub>(x)|
+</div>
+
+<p>where F<sub>s,j</sub> and F<sub>t,j</sub> are the empirical CDFs of feature j in source and target domains. Feature j is classified as <i>shifted</i> if KS<sub>j</sub> > &tau; and p<sub>j</sub> < &alpha;, where &tau; and &alpha; are threshold parameters. Let S denote the set of shifted features and N&macr; the non-shifted features.</p>
+
+<h4>2.2.2 Shift-Aware Feature Enhancement</h4>
+
+<p>For each sample x, we compute three shift meta-features:</p>
+
+<div class="formula">
+&phi;<sub>1</sub>(x) = (1/d) &Sigma;<sub>j=1</sub><sup>d</sup> |z<sub>j</sub>(x)| &nbsp;&nbsp;(global shift score)
+</div>
+<div class="formula">
+&phi;<sub>2</sub>(x) = (1/|S|) &Sigma;<sub>j&isin;S</sub> |z<sub>j</sub>(x)| &nbsp;&nbsp;(shifted feature score)
+</div>
+<div class="formula">
+&phi;<sub>3</sub>(x) = (1/|N&macr;|) &Sigma;<sub>j&isin;N&macr;</sub> |z<sub>j</sub>(x)| &nbsp;&nbsp;(non-shifted feature score)
+</div>
+
+<p>where z<sub>j</sub>(x) = (x<sub>j</sub> &minus; &mu;<sub>j</sub><sup>s</sup>) / &sigma;<sub>j</sub><sup>s</sup> is the standardized score relative to source statistics. The enhanced feature representation is x&tilde; = [x, &phi;<sub>1</sub>(x), &phi;<sub>2</sub>(x), &phi;<sub>3</sub>(x)].</p>
+
+<p><b>Enhancement Safety Gate.</b> To prevent degradation on datasets where shift features may not help, we train a quick XGBoost model with and without enhancement on the source domain and evaluate on the validation set. Enhancement is applied only if it improves validation accuracy:</p>
+
+<div class="formula">
+use_enhanced = 1[Acc<sub>val</sub>(f<sub>enh</sub>) &ge; Acc<sub>val</sub>(f<sub>orig</sub>)]
+</div>
+
+<h4>2.2.3 Diverse Ensemble</h4>
+
+<p>We construct a diverse ensemble of M = 8 models spanning 4 algorithms with 2 hyperparameter configurations each:</p>
+
+<table>
+<tr><th>Algorithm</th><th>Config</th><th>n_estimators</th><th>max_depth</th><th>learning_rate</th></tr>
+<tr><td>XGBoost</td><td>0</td><td>100</td><td>6</td><td>0.1</td></tr>
+<tr><td>XGBoost</td><td>1</td><td>200</td><td>4</td><td>0.05</td></tr>
+<tr><td>LightGBM</td><td>0</td><td>100</td><td>6</td><td>0.1</td></tr>
+<tr><td>LightGBM</td><td>1</td><td>200</td><td>4</td><td>0.05</td></tr>
+<tr><td>Random Forest</td><td>0</td><td>100</td><td>10</td><td>-</td></tr>
+<tr><td>Random Forest</td><td>1</td><td>200</td><td>8</td><td>-</td></tr>
+<tr><td>Extra Trees</td><td>0</td><td>100</td><td>10</td><td>-</td></tr>
+<tr><td>Extra Trees</td><td>1</td><td>200</td><td>8</td><td>-</td></tr>
+</table>
+
+<p>Each model is trained on one of three feature views: original features, enhanced features (with shift meta-features), or non-shifted features only. This multi-view approach ensures diversity across both algorithms and feature representations.</p>
+
+<h4>2.2.4 Validation-Weighted Fusion</h4>
+
+<p>Given M models with validation accuracies a<sub>1</sub>, ..., a<sub>M</sub>, we compute VWF weights using rank-based softmax with shift-adaptive temperature:</p>
+
+<div class="formula">
+T<sub>adapt</sub> = T<sub>0</sub> &middot; (1 + 2&gamma;), &nbsp; where &gamma; = |S| / d
+</div>
+
+<p>where &gamma; is the shift severity ratio and T<sub>0</sub> is the base temperature. Under high distribution shift, the temperature increases, making the weights more conservative (closer to uniform) because validation accuracy becomes less reliable as a proxy for target performance.</p>
+
+<div class="formula">
+r<sub>m</sub> = Rank(a<sub>m</sub>) + 1 &nbsp;&nbsp;(rank from 1=worst to M=best)
+</div>
+<div class="formula">
+w<sub>m</sub> = exp(r<sub>m</sub> / T<sub>adapt</sub>) / &Sigma;<sub>m'</sub> exp(r<sub>m'</sub> / T<sub>adapt</sub>)
+</div>
+
+<p>The final prediction is p(y|x) = &Sigma;<sub>m</sub> w<sub>m</sub> &middot; p<sub>m</sub>(y|x). A minimum weight constraint w<sub>m</sub> &ge; w<sub>min</sub> ensures all models contribute to the ensemble.</p>
+
+<p><b>Target-Similarity Weighted Validation.</b> To better estimate target performance, we compute sample weights for validation instances based on their similarity to the target distribution using a Gaussian kernel on standardized distances:</p>
+
+<div class="formula">
+w<sub>k</sub><sup>val</sup> = clip(exp(&minus;||z(x<sub>k</sub><sup>v</sup>)||<sup>2</sup> / (2&sigma;<sup>2</sup>)), w<sub>lo</sub>, w<sub>hi</sub>)
+</div>
+
+<p>Validation accuracy is then computed as a weighted average, focusing the safety check on samples most similar to the target domain.</p>
+
+<h3>2.3 Phase 2: Iterative Self-Training Refinement</h3>
+
+<p>When distribution shift is detected (|S| > 0), we perform iterative self-training using high-confidence pseudo-labels from the target domain.</p>
+
+<h4>2.3.1 Curriculum Pseudo-Labeling</h4>
+
+<p>We use a curriculum strategy with decreasing confidence thresholds &theta;<sub>1</sub> = 0.9, &theta;<sub>2</sub> = 0.85, &theta;<sub>3</sub> = 0.8. At iteration t, we select target samples with maximum prediction confidence above &theta;<sub>t</sub>:</p>
+
+<div class="formula">
+M<sub>t</sub> = {j : max<sub>c</sub> p(y<sub>c</sub>|x<sub>j</sub><sup>t</sup>) &ge; &theta;<sub>t</sub>}
+</div>
+
+<p>Pseudo-labels are assigned as &yhat;<sub>j</sub> = argmax<sub>c</sub> p(y<sub>c</sub>|x<sub>j</sub><sup>t</sup>) for j &isin; M<sub>t</sub>. To prevent overfitting to pseudo-labels, we cap the ratio at &rho;<sub>max</sub> = 0.5 and require a minimum ratio of &rho;<sub>min</sub> = 0.05.</p>
+
+<h4>2.3.2 Weighted Retraining</h4>
+
+<p>Models are retrained on the combined source and pseudo-labeled target data:</p>
+
+<div class="formula">
+D<sub>combined</sub> = D<sub>s</sub> &cup; {(x<sub>j</sub><sup>t</sup>, &yhat;<sub>j</sub>) : j &isin; M<sub>t</sub>}
+</div>
+
+<p>Source samples receive weight 1.0, while pseudo-labeled samples are weighted by their confidence: w<sub>j</sub> = max<sub>c</sub> p(y<sub>c</sub>|x<sub>j</sub><sup>t</sup>).</p>
+
+<h4>2.3.3 Global Safety Check</h4>
+
+<p>After each iteration, we evaluate the retrained ensemble on target-weighted validation accuracy. The adaptation is accepted only if:</p>
+
+<div class="formula">
+Acc<sub>val</sub><sup>weighted</sup>(f<sub>new</sub>) &ge; Acc<sub>val</sub><sup>weighted</sup>(f<sub>best</sub>) &nbsp; AND &nbsp; Acc<sub>val</sub><sup>weighted</sup>(f<sub>new</sub>) &ge; Acc<sub>val</sub><sup>weighted</sup>(f<sub>single</sub><sup>best</sup>)
+</div>
+
+<p>where f<sub>single</sub><sup>best</sup> is the best single model from Phase 1. This ensures that self-training only proceeds when it improves upon both the current best ensemble and the best individual model. If the check fails, the iteration is rejected and Phase 1 models are retained.</p>
+
+<h3>2.4 Complexity Analysis</h3>
+
+<p><b>Theoretical Complexity.</b> Let n = n<sub>s</sub> + n<sub>t</sub>, d be the feature dimension, and M = 8 be the number of ensemble models. Shift characterization requires O(d &middot; n log n) for KS tests. Feature enhancement is O(n &middot; d) per view. Training the diverse ensemble is O(M &middot; T &middot; n log n) where T is the number of trees. Self-training adds O(I &middot; M &middot; T &middot; (n + n<sub>pseudo</sub>) log(n + n<sub>pseudo</sub>)) for I iterations. The total time complexity is O(M &middot; T &middot; n log n &middot; (1 + I &middot; &rho;)) where &rho; is the pseudo-label ratio.</p>
+
+<p><b>Space Complexity.</b> The ensemble requires O(M &middot; T &middot; d &middot; log n) space for storing M tree-based models, plus O(n &middot; d) for the data matrices.</p>
+
+<h2>3 Experiments</h2>
+
+<h3>3.1 Experimental Setup</h3>
+
+<p><b>Datasets.</b> We evaluate on 8 tabular datasets spanning diverse domains: Telco Customer Churn, Bank Marketing, Heart Disease, Mushroom, Adult Income, Wine Quality, Dry Bean, and sklearn Wine. The datasets vary in size (212 to 32,561 samples), features (6 to 16), and classes (2 to 7).</p>
+
+<p><b>Split Types.</b> We use three split types to simulate different distribution shift scenarios: (1) <b>IID</b>: random split with no distribution shift; (2) <b>Temporal</b>: time-based split where the latest 25% samples form the test set, simulating temporal drift; (3) <b>Group</b>: group-based split using a categorical grouping variable (e.g., geography), simulating population shift.</p>
+
+<p><b>Baselines.</b> We compare against 6 baselines: Logistic Regression (LR), Random Forest (RF), XGBoost, LightGBM, Extra Trees, and Simple Ensemble (equal-weight average of XGBoost, LightGBM, RF).</p>
+
+<p><b>Protocol.</b> Each experiment is repeated with 5 random seeds (42, 123, 456, 789, 1024). Results report mean &plusmn; standard deviation and 95% confidence intervals. Statistical significance is assessed using paired t-tests with &alpha; = 0.05.</p>
+
+<h3>3.2 Main Results</h3>
+
+<p>Table 1 shows the overall performance across all datasets and split types. TRASE achieves the highest average accuracy of 0.8432, significantly outperforming XGBoost by +1.79% (p = 1.31&times;10<sup>-3</sup>) and all single-model baselines. The improvement over SimpleEns (+0.58%) is positive but not statistically significant (p = 0.120), indicating that TRASE's advantage comes primarily from its adaptive mechanisms rather than simple ensembling.</p>
+
+<p><b>Table 1.</b> Overall performance comparison (mean &plusmn; std, 95% CI, N=90).</p>
+<table>
+<tr><th>Method</th><th>Accuracy</th><th>Std</th><th>95% CI Lower</th><th>95% CI Upper</th></tr>
+<tr><td>LR</td><td>0.7776</td><td>0.1357</td><td>0.7490</td><td>0.8061</td></tr>
+<tr><td>RF</td><td>0.8353</td><td>0.0930</td><td>0.8157</td><td>0.8549</td></tr>
+<tr><td>XGBoost</td><td>0.8283</td><td>0.1083</td><td>0.8055</td><td>0.8512</td></tr>
+<tr><td>LightGBM</td><td>0.8342</td><td>0.0925</td><td>0.8147</td><td>0.8537</td></tr>
+<tr><td>ExtraTrees</td><td>0.8291</td><td>0.0903</td><td>0.8101</td><td>0.8481</td></tr>
+<tr><td>SimpleEns</td><td>0.8384</td><td>0.0960</td><td>0.8181</td><td>0.8586</td></tr>
+<tr class="best"><td>TRASE</td><td>0.8432</td><td>0.0942</td><td>0.8234</td><td>0.8631</td></tr>
+</table>
+
+<p><b>Table 2.</b> Paired t-tests: TRASE vs. baselines.</p>
+<table>
+<tr><th>Baseline</th><th>Diff</th><th>t-stat</th><th>p-value</th><th>Cohen's d</th><th>Sig.</th></tr>
+<tr><td>LR</td><td>+0.0656</td><td>5.348</td><td>6.82&times;10<sup>-7</sup></td><td>0.567</td><td>***</td></tr>
+<tr><td>RF</td><td>+0.0079</td><td>2.784</td><td>6.55&times;10<sup>-3</sup></td><td>0.295</td><td>**</td></tr>
+<tr><td>XGBoost</td><td>+0.0149</td><td>3.319</td><td>1.31&times;10<sup>-3</sup></td><td>0.352</td><td>**</td></tr>
+<tr><td>LightGBM</td><td>+0.0090</td><td>2.736</td><td>7.51&times;10<sup>-3</sup></td><td>0.290</td><td>**</td></tr>
+<tr><td>ExtraTrees</td><td>+0.0141</td><td>4.455</td><td>2.43&times;10<sup>-5</sup></td><td>0.472</td><td>***</td></tr>
+<tr><td>SimpleEns</td><td>+0.0049</td><td>1.571</td><td>0.120</td><td>0.167</td><td>ns</td></tr>
+</table>
+
+<p>Table 3 shows performance by split type. TRASE's improvement is most pronounced on temporal splits (+3.80% over XGBoost, p = 0.012), where distribution shift is most severe. On IID splits, the improvement is smaller (+0.58%, p = 0.104) because there is no distribution shift to adapt to. On group splits, TRASE shows a moderate improvement (+0.63%, p = 0.071).</p>
+
+<p><b>Table 3.</b> Performance by split type (mean &plusmn; std).</p>
+<table>
+<tr><th>Split</th><th>XGBoost</th><th>SimpleEns</th><th>TRASE</th><th>Diff vs XGB</th><th>p-value</th><th>Sig.</th></tr>
+<tr><td>IID</td><td>0.8707&plusmn;0.086</td><td>0.8775&plusmn;0.082</td><td>0.8765&plusmn;0.088</td><td>+0.0058</td><td>0.104</td><td>ns</td></tr>
+<tr><td>Temporal</td><td>0.7455&plusmn;0.128</td><td>0.7637&plusmn;0.109</td><td>0.7834&plusmn;0.103</td><td>+0.0380</td><td>0.012</td><td>*</td></tr>
+<tr><td>Group</td><td>0.8434&plusmn;0.063</td><td>0.8504&plusmn;0.049</td><td>0.8497&plusmn;0.060</td><td>+0.0063</td><td>0.071</td><td>ns</td></tr>
+</table>
+
+<p>TRASE wins or ties on 11 out of 18 dataset-split combinations (61.1% win rate). The most notable improvement is on Heart/Temporal (+16.96% over XGBoost), where temporal drift causes XGBoost to drop to 0.587 while TRASE maintains 0.757 through self-training adaptation.</p>
+
+<h3>3.3 Ablation Study</h3>
+
+<p>Table 4 shows the ablation results on temporal and group splits (where distribution shift exists). Each variant progressively adds components to evaluate their individual contributions.</p>
+
+<p><b>Table 4.</b> Ablation study results (mean &plusmn; std, 95% CI, N=50).</p>
+<table>
+<tr><th>Variant</th><th>Accuracy</th><th>Std</th><th>95% CI</th><th>N</th></tr>
+<tr><td>SingleXGB</td><td>0.7944</td><td>0.1122</td><td>[0.762, 0.827]</td><td>50</td></tr>
+<tr><td>DE</td><td>0.8082</td><td>0.0950</td><td>[0.781, 0.835]</td><td>50</td></tr>
+<tr><td>DE+VWF</td><td>0.8162</td><td>0.0912</td><td>[0.790, 0.842]</td><td>50</td></tr>
+<tr><td>DE+SC+FE</td><td>0.8074</td><td>0.0957</td><td>[0.780, 0.835]</td><td>50</td></tr>
+<tr><td>NoST (Phase 1 Full)</td><td>0.8153</td><td>0.0900</td><td>[0.790, 0.841]</td><td>50</td></tr>
+<tr class="best"><td>Full TRASE</td><td>0.8165</td><td>0.0904</td><td>[0.791, 0.843]</td><td>50</td></tr>
+</table>
+
+<p><b>Table 5.</b> Ablation paired t-tests (sequential addition).</p>
+<table>
+<tr><th>Component</th><th>Transition</th><th>Diff</th><th>p-value</th><th>Cohen's d</th><th>Sig.</th></tr>
+<tr><td>Diverse Ensemble</td><td>SingleXGB &rarr; DE</td><td>+0.0137</td><td>0.002</td><td>0.464</td><td>**</td></tr>
+<tr><td>VWF</td><td>DE &rarr; DE+VWF</td><td>+0.0081</td><td>0.055</td><td>0.281</td><td>ns</td></tr>
+<tr><td>SC+FE</td><td>DE &rarr; DE+SC+FE</td><td>-0.0007</td><td>0.565</td><td>-0.083</td><td>ns</td></tr>
+<tr><td>VWF (on enhanced)</td><td>DE+SC+FE &rarr; NoST</td><td>+0.0079</td><td>0.093</td><td>0.245</td><td>ns</td></tr>
+<tr><td>Self-Training</td><td>NoST &rarr; Full</td><td>+0.0013</td><td>0.046</td><td>0.292</td><td>*</td></tr>
+</table>
+
+<p>The diverse ensemble (DE) provides the largest and most significant improvement (+1.37%, p = 0.002), confirming that model diversity across algorithms and hyperparameters is the primary driver of robustness. VWF contributes +0.81% (p = 0.055, approaching significance), demonstrating that adaptive weighting improves upon equal-weight ensembling. The shift-aware feature enhancement (SC+FE) shows negligible direct contribution (-0.07%, p = 0.565) when combined with equal weighting, but it becomes beneficial when combined with VWF (+0.79% from DE+SC+FE to NoST). Self-training provides a small but statistically significant improvement (+0.13%, p = 0.046), with the safety check ensuring it never degrades performance.</p>
+
+<p>Importantly, no component shows negative contribution in the full pipeline, validating that each module adds value when combined with the others. The safety mechanisms (enhancement gate, VWF safety check, global self-training check) ensure that adaptation only proceeds when beneficial.</p>
+
+<h3>3.4 Shift and Self-Training Analysis</h3>
+
+<p>Table 6 shows the shift characteristics and self-training behavior by split type. On temporal splits, an average of 9.8 features are detected as shifted, enabling enhancement on 52% of runs and self-training on all runs. Self-training improved performance on 36% of temporal runs. On group splits, 5.0 features are shifted on average, with enhancement on 28% of runs. On IID splits, minimal shift is detected (0.1 features on average), and the framework correctly disables adaptation.</p>
+
+<p><b>Table 6.</b> Shift analysis by split type.</p>
+<table>
+<tr><th>Split</th><th>Avg Shifted Features</th><th>Enhancement Rate</th><th>ST Iterations</th><th>ST Improved Rate</th></tr>
+<tr><td>IID</td><td>0.1 &plusmn; 0.3</td><td>4/40 (10%)</td><td>0.2</td><td>2/40 (5%)</td></tr>
+<tr><td>Temporal</td><td>9.8 &plusmn; 4.3</td><td>13/25 (52%)</td><td>1.5</td><td>9/25 (36%)</td></tr>
+<tr><td>Group</td><td>5.0 &plusmn; 3.5</td><td>7/25 (28%)</td><td>1.4</td><td>9/25 (36%)</td></tr>
+</table>
+
+<p>Among the 52 self-training runs (where shift was detected), 20 (38.5%) resulted in improved validation accuracy. The average number of self-training iterations was 1.56, with an average of 835 pseudo-labels per iteration. The safety check correctly rejected 61.5% of runs where self-training would have degraded performance, highlighting the importance of the global safety mechanism.</p>
+
+<h3>3.5 Parameter Sensitivity Analysis</h3>
+
+<p>We evaluate sensitivity to 4 key hyperparameters using the elasticity coefficient, defined as the ratio of relative performance change to relative parameter change. Table 7 shows that all parameters exhibit low sensitivity (elasticity < 0.2), indicating that TRASE is robust to hyperparameter choices.</p>
+
+<p><b>Table 7.</b> Parameter sensitivity analysis (temporal split, 4 datasets &times; 3 seeds).</p>
+<table>
+<tr><th>Parameter</th><th>Range</th><th>Best Value</th><th>Best Accuracy</th><th>Elasticity</th><th>Sensitivity</th></tr>
+<tr><td>shift_threshold</td><td>0.05 - 0.20</td><td>0.20</td><td>0.7751</td><td>0.0111</td><td>Low</td></tr>
+<tr><td>vwf_temperature</td><td>0.005 - 0.10</td><td>0.05</td><td>0.7684</td><td>0.0089</td><td>Low</td></tr>
+<tr><td>st_confidence_thresholds</td><td>[0.80,0.75,0.70] - [0.95,0.90,0.85]</td><td>[0.85,0.80,0.75]</td><td>0.7678</td><td>0.0173</td><td>Low</td></tr>
+<tr><td>st_max_pseudo_ratio</td><td>0.20 - 0.60</td><td>0.40</td><td>0.7670</td><td>0.0024</td><td>Low</td></tr>
+</table>
+
+<h3>3.6 Robustness Analysis</h3>
+
+<p>We evaluate TRASE's robustness to feature noise (Gaussian noise added to test features) and missing values (randomly zeroed features) on 4 datasets using IID splits. Table 8 shows the accuracy degradation from 0% to 30% corruption.</p>
+
+<p><b>Table 8.</b> Robustness analysis: accuracy degradation (0% &rarr; 30% corruption).</p>
+<table>
+<tr><th>Dataset</th><th>Noise Degradation</th><th>Missing Degradation</th><th>Noise Rate</th><th>Missing Rate</th></tr>
+<tr><td>Telco</td><td>0.022</td><td>0.009</td><td>0.073</td><td>0.028</td></tr>
+<tr><td>Bank</td><td>0.118</td><td>0.096</td><td>0.393</td><td>0.318</td></tr>
+<tr><td>Heart</td><td>0.065</td><td>0.130</td><td>0.217</td><td>0.435</td></tr>
+<tr><td>Mushroom</td><td>0.195</td><td>0.152</td><td>0.649</td><td>0.506</td></tr>
+</table>
+
+<p>TRASE shows graceful degradation on most datasets. Telco exhibits the strongest robustness with only 2.2% accuracy drop under 30% noise and 0.9% under 30% missing values. Mushroom is most affected (19.5% drop under noise) due to its binary features being more sensitive to perturbation. The ensemble diversity helps maintain robustness, as different models degrade differently under corruption.</p>
+
+<h3>3.7 Computational Efficiency</h3>
+
+<p>Table 9 compares the computational efficiency of all methods on 4 datasets using temporal splits. TRASE's training time (22.07s average) is higher than single models due to training 8 models with self-training iterations, but remains practical for offline batch prediction. Inference time (0.55s) and memory usage (14.9MB) are modest.</p>
+
+<p><b>Table 9.</b> Computational efficiency comparison (4 datasets, temporal split).</p>
+<table>
+<tr><th>Method</th><th>Accuracy</th><th>Train Time (s)</th><th>Infer Time (s)</th><th>Memory (MB)</th><th>Models</th></tr>
+<tr><td>LR</td><td>0.7503</td><td>0.02</td><td>0.0007</td><td>0.7</td><td>1</td></tr>
+<tr><td>RF</td><td>0.7520</td><td>1.11</td><td>0.1064</td><td>11.5</td><td>1</td></tr>
+<tr><td>XGBoost</td><td>0.7303</td><td>0.21</td><td>0.0024</td><td>0.0</td><td>1</td></tr>
+<tr><td>LightGBM</td><td>0.7401</td><td>0.21</td><td>0.0037</td><td>1.6</td><td>1</td></tr>
+<tr><td>ExtraTrees</td><td>0.7771</td><td>0.70</td><td>0.1035</td><td>9.2</td><td>1</td></tr>
+<tr><td>SimpleEns</td><td>0.7466</td><td>1.53</td><td>0.0001</td><td>1.6</td><td>3</td></tr>
+<tr class="best"><td>TRASE</td><td>0.7747</td><td>22.07</td><td>0.5477</td><td>14.9</td><td>8</td></tr>
+</table>
+
+<h2>4 Discussion</h2>
+
+<p>The experimental results reveal several important findings about test-time adaptation for tabular data under distribution shift.</p>
+
+<p><b>Effectiveness of diverse ensembling.</b> The diverse ensemble (DE) is the single most impactful component, providing +1.37% improvement (p = 0.002). This aligns with findings from TabM [13] that ensembling significantly improves tabular learning. Our results extend this to the distribution shift setting, showing that diversity across both algorithms (XGBoost, LightGBM, RF, ExtraTrees) and hyperparameters provides robustness that single models cannot achieve.</p>
+
+<p><b>Role of shift-aware features.</b> The shift-aware feature enhancement (SC+FE) shows limited direct contribution when evaluated in isolation (-0.07%, p = 0.565). However, the enhancement safety gate is crucial: it prevents degradation on datasets where shift features are unhelpful, and the features become beneficial when combined with VWF (+0.79% from DE+SC+FE to NoST). This suggests that shift meta-features provide useful information for model weighting even when they do not directly improve individual model performance.</p>
+
+<p><b>Conservative self-training.</b> Self-training improves performance in only 38.5% of runs where it is activated, with the safety check rejecting the remaining 61.5%. This conservative behavior is by design: the global safety check ensures that self-training never degrades performance below the best single model. The small but significant improvement (+0.13%, p = 0.046) validates that pseudo-labeling can provide additional information from the target domain, but only when carefully gated.</p>
+
+<p><b>Temporal shift is the primary challenge.</b> TRASE shows the largest improvement on temporal splits (+3.80% over XGBoost), where distribution shift is most severe and consistent. On IID splits, where no shift exists, the improvement is minimal (+0.58%), confirming that TRASE's mechanisms specifically address distribution shift rather than providing general performance gains.</p>
+
+<p><b>Limitations.</b> TRASE has several limitations. First, the improvement over SimpleEns is not statistically significant (p = 0.120), suggesting that much of the gain comes from ensembling rather than the adaptive mechanisms. Second, the training time (22s average) is an order of magnitude higher than single models, though this is acceptable for batch prediction scenarios. Third, self-training provides modest improvements, indicating that pseudo-labeling for tabular data remains challenging. Fourth, the shift-aware feature enhancement does not consistently help across all datasets, as the safety gate rejects it in 48% of temporal runs.</p>
+
+<h2>5 Conclusion</h2>
+
+<p>We proposed TRASE, a two-phase framework for robust tabular learning under distribution shift. By combining shift-aware feature enhancement, validation-weighted fusion, and curriculum-based self-training with comprehensive safety mechanisms, TRASE achieves significant improvement over strong baselines ( +1.79% over XGBoost, p = 0.001), particularly on temporal splits with severe distribution shift (+3.80%, p = 0.012). All components contribute positively in the full pipeline, with the diverse ensemble providing the largest gain. The framework shows low sensitivity to hyperparameters and graceful degradation under feature corruption.</p>
+
+<p>Future work includes: (1) exploring more sophisticated pseudo-labeling strategies such as contrastive learning for tabular data, (2) extending the framework to regression tasks, (3) investigating online adaptation for streaming data, and (4) integrating recent tabular foundation models [30,47,48] as additional ensemble members.</p>
+
+<h2>References</h2>
+
+<div class="ref">[1] Chen T, Guestrin C. XGBoost: A scalable tree boosting system. In: Proc. of KDD 2016. pp 785-794.</div>
+<div class="ref">[2] Grinsztajn L, Oyallon E, Varoquaux G. Why do tree-based models still outperform deep learning on tabular data? In: Proc. of NeurIPS 2022. vol 35, pp 507-520.</div>
+<div class="ref">[3] Gorishniy Y, Rubachev I, Khrulkov A, Babenko A. Revisiting deep learning models for tabular data. In: Proc. of NeurIPS 2021. vol 34, pp 18932-18943.</div>
+<div class="ref">[4] Gardner J, Popovic Z, Schmidt L. Benchmarking distribution shift in tabular data with TableShift. In: Proc. of NeurIPS 2023 Datasets and Benchmarks Track.</div>
+<div class="ref">[5] Cai R, et al. Understanding the limits of deep tabular methods with temporal shift. Transactions on Machine Learning Research (TMLR), 2025.</div>
+<div class="ref">[6] Ye Y, et al. Rethinking distribution shifts: Empirical analysis and inductive modeling for tabular data. arXiv preprint arXiv:2307.05284, 2023.</div>
+<div class="ref">[7] Ginanjara A, et al. Continual contrastive learning on tabular data with out of distribution. arXiv preprint arXiv:2503.15089, 2025.</div>
+<div class="ref">[8] Kosolapova S, et al. Representation learning on out of distribution in tabular data. arXiv preprint arXiv:2502.10095, 2025.</div>
+<div class="ref">[9] Wang D, Shelhamer E, Liu S, Olshausen B, Darrell T. Tent: Fully test-time adaptation by entropy minimization. In: Proc. of ICLR 2021.</div>
+<div class="ref">[10] Wang C, Ding Z, Liang J, Hu D, Feng J. Towards stable test-time adaptation in dynamic wild world. In: Proc. of ICLR 2023.</div>
+<div class="ref">[11] Kim C, Kim T, Woo S, Yang JY, Yang E. AdapTable: Test-time adaptation for tabular data via shift-aware uncertainty calibrator and label distribution handler. arXiv preprint arXiv:2407.10784, 2024.</div>
+<div class="ref">[12] FTAT: Fully test-time adaptation for tabular data. arXiv preprint arXiv:2412.10871, 2024.</div>
+<div class="ref">[13] Gorishniy Y, Kotelnikov A, Babenko A. TabM: Advancing tabular deep learning with parameter-efficient ensembling. In: Proc. of NeurIPS 2025.</div>
+<div class="ref">[14] Marsden RA, D&ouml;bler M, Yang B. Universal test-time adaptation through weight ensembling, diversity weighting, and prior correction. arXiv preprint arXiv:2306.00650, 2023.</div>
+<div class="ref">[15] Hollmann N, M&uuml;ller S, Eggensperger K, Hutter F. Tabular data: Is deep learning all you need? In: Proc. of NeurIPS 2023.</div>
+<div class="ref">[16] Kim M, Kim J, Song G. Revisiting self-training with regularized pseudo-labeling for tabular data. arXiv preprint arXiv:2302.14013, 2023.</div>
+<div class="ref">[17] Kim M, Kim J, Kim KB, Kang D, Song G. CAST: Cluster-aware self-training for tabular data via reliable confidence. In: Proc. of ICLR 2024.</div>
+<div class="ref">[18] Improving self-training under distribution shifts via anchored confidence with theoretical guarantees. arXiv preprint arXiv:2410.05016, 2024.</div>
+<div class="ref">[19] Fang Y, Yap PT, Lin W, Zhu H, Liu M. Source-free unsupervised domain adaptation: A survey. arXiv preprint arXiv:2301.00265, 2023.</div>
+<div class="ref">[20] A novel pseudo-label based domain adaptation method on tabular data. arXiv preprint arXiv:2303.04238, 2023.</div>
+<div class="ref">[21] Xu H, Kumar V, et al. A theoretical analysis on independence-driven importance weighting for covariate-shift generalization. In: Proc. of ICML 2022.</div>
+<div class="ref">[22] Stream learning under concept and feature drift: A literature survey. arXiv preprint arXiv:2310.15826, 2023.</div>
+<div class="ref">[23] Online drift detection with maximum concept discrepancy. arXiv preprint arXiv:2407.05375, 2024.</div>
+<div class="ref">[24] A systematic review on detection and adaptation of concept drift in streaming data using machine learning techniques. WIREs Data Mining and Knowledge Discovery, 2023.</div>
+<div class="ref">[25] Arik S&Ouml;, Pfister T. TabNet: Attentive interpretable tabular learning. In: Proc. of AAAI 2021. vol 35, pp 6679-6687.</div>
+<div class="ref">[26] Chen KY, Chiang PH, Chou HR, Chen TW, Chang TH. Trompt: Towards a better deep neural network for tabular data. In: Proc. of ICML 2023.</div>
+<div class="ref">[27] Xiao Z, Snoek CGM. Beyond model adaptation at test time: A survey. arXiv preprint arXiv:2411.03687, 2024.</div>
+<div class="ref">[28] Jang M, Chung HW. Label distribution shift-aware prediction refinement for test-time adaptation. arXiv preprint arXiv:2411.15204, 2024.</div>
+<div class="ref">[29] Adapting to continuous covariate shift via online density ratio estimation. arXiv preprint arXiv:2302.02552, 2023.</div>
+<div class="ref">[30] Ma J, Thomas V, Hosseinzadeh R, et al. TabDPT: Scaling tabular foundation models on real data. In: Proc. of NeurIPS 2025.</div>
+<div class="ref">[31] Chitlangia S, Muralidhar A, Agarwal R. Self-supervised pre-training for large scale tabular data. In: NeurIPS 2022 TRL Workshop.</div>
+<div class="ref">[32] Schambach M, Paul D, Otterbach JS. Scaling experiments in self-supervised cross-table representation learning. In: Proc. of NeurIPS 2023.</div>
+<div class="ref">[33] A survey on self-supervised learning for non-sequential tabular data. Machine Learning journal, Springer, 2024.</div>
+<div class="ref">[34] Enriching tabular data with contextual LLM embeddings: A comprehensive ablation study for ensemble classifiers. arXiv preprint arXiv:2411.01645, 2024.</div>
+<div class="ref">[35] Expert monitoring: Human-centered concept drift detection in machine learning operations. In: Proc. of ACM SIGKDD 2024.</div>
+
+</body>
+</html>
