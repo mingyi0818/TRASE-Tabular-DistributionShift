@@ -58,17 +58,9 @@ Key features:
 └── reproduce.md                   # Reproduction guide
 ```
 
-## Key Results
+## Results
 
-| Method | Accuracy | Std | 95% CI |
-|--------|----------|-----|--------|
-| XGBoost | 0.8283 | 0.1083 | [0.806, 0.851] |
-| SimpleEns | 0.8384 | 0.0960 | [0.818, 0.859] |
-| **TRASE** | **0.8432** | **0.0942** | **[0.823, 0.863]** |
-
-- Improvement over XGBoost: +1.79% (p = 1.31×10⁻³, **)
-- Win rate: 11/18 (61.1%)
-- On temporal splits: +3.80% (p = 0.012, *)
+Running the commands above regenerates all metrics, the ablation study, and the manuscript figures locally under `results/` (which is **not** stored in this repository). Numerical results are intentionally **not** pre-published here to avoid disclosing unpublished findings; reviewers reproduce them by running the code.
 
 ## Environment Requirements
 
